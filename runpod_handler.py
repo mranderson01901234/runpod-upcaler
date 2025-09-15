@@ -1,48 +1,72 @@
 import runpod
 import os
+import base64
 import subprocess
 
 def handler(event):
     try:
-        print("=== DEBUG INFO ===")
-        print(f"Current directory: {os.getcwd()}")
-        print(f"Contents of /app: {os.listdir('/app')}")
+        input_data = event.get("input", {})
         
-        # Check if InvSR exists
-        invsr_path = "/app/InvSR"
-        if os.path.exists(invsr_path):
-            print(f"InvSR directory exists")
-            print(f"InvSR contents: {os.listdir(invsr_path)}")
+        if "image" not in input_data:
+            return {"error": "No image provided"}
+        
+        # Test PyTorch first
+        try:
+            import torch
+            if not torch.cuda.is_available():
+                return {"status": "error", "message": "CUDA not available in PyTorch"}
+        except ImportError:
+            return {"status": "error", "message": "PyTorch import failed"}
+        
+        # Decode and save image
+        image_bytes = base64.b64decode(input_data["image"])
+        with open("/tmp/input.jpg", "wb") as f:
+            f.write(image_bytes)
+        
+        # Get quality settings
+        quality_mode = input_data.get("quality_mode", "standard")
+        num_steps = 1 if quality_mode == "fast" else 3
+        chopping_size = 128 if quality_mode == "fast" else 256
+        
+        # Change to InvSR directory
+        os.chdir("/app/InvSR")
+        
+        # Run InvSR
+        cmd = [
+            "python", "inference_invsr.py",
+            "-i", "/tmp/input.jpg", 
+            "-o", "/tmp/",
+            "--num_steps", str(num_steps),
+            "--chopping_size", str(chopping_size),
+            "--chopping_bs", "1"
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        
+        if result.returncode == 0:
+            # Look for output file
+            output_files = [f for f in os.listdir("/tmp/") if f.startswith("input") and f.endswith((".jpg", ".png"))]
             
-            # Check if inference script exists
-            inference_script = f"{invsr_path}/inference_invsr.py"
-            if os.path.exists(inference_script):
-                print("inference_invsr.py found")
-                
-                # Try running Python --version
-                result = subprocess.run(["python", "--version"], capture_output=True, text=True)
-                print(f"Python version: {result.stdout}")
-                
-                # Try importing basic modules
-                test_cmd = ["python", "-c", "import torch; print('PyTorch version:', torch.__version__)"]
-                result = subprocess.run(test_cmd, capture_output=True, text=True)
-                print(f"PyTorch test: {result.stdout}")
-                print(f"PyTorch errors: {result.stderr}")
+            if output_files:
+                output_path = f"/tmp/{output_files[0]}"
+                with open(output_path, "rb") as f:
+                    enhanced_data = base64.b64encode(f.read()).decode()
                 
                 return {
-                    "status": "debug_success",
-                    "message": "Container working, InvSR found",
-                    "details": {
-                        "invsr_exists": True,
-                        "pytorch_working": "torch" in result.stdout
-                    }
+                    "status": "success",
+                    "enhanced_image": enhanced_data,
+                    "quality_mode": quality_mode
                 }
             else:
-                return {"status": "error", "message": "inference_invsr.py not found"}
+                return {"status": "error", "message": "No output file generated"}
         else:
-            return {"status": "error", "message": "InvSR directory not found"}
+            return {
+                "status": "error", 
+                "message": f"InvSR failed: {result.stderr}",
+                "stdout": result.stdout
+            }
             
     except Exception as e:
-        return {"status": "error", "message": f"Debug failed: {str(e)}"}
+        return {"status": "error", "message": str(e)}
 
 runpod.serverless.start({"handler": handler})
