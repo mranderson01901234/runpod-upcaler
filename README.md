@@ -107,3 +107,4 @@ This project is based on [BasicSR](https://github.com/XPixelGroup/BasicSR) and [
 
 ### Contact
 If you have any questions, please feel free to contact me via `zsyzam@gmail.com`.
+# runpod-upcaler
