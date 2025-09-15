@@ -1,50 +1,48 @@
 import runpod
 import os
-import base64
 import subprocess
 
 def handler(event):
     try:
-        input_data = event.get("input", {})
+        print("=== DEBUG INFO ===")
+        print(f"Current directory: {os.getcwd()}")
+        print(f"Contents of /app: {os.listdir('/app')}")
         
-        if "image" not in input_data:
-            return {"error": "No image provided"}
-        
-        # Decode and save image
-        image_bytes = base64.b64decode(input_data["image"])
-        with open("/tmp/input.jpg", "wb") as f:
-            f.write(image_bytes)
-        
-        # Get quality settings
-        quality_mode = input_data.get("quality_mode", "standard")
-        num_steps = 1 if quality_mode == "fast" else 3
-        chopping_size = 128 if quality_mode == "fast" else 256
-        
-        # Run InvSR
-        cmd = [
-            "python", "/app/InvSR/inference_invsr.py",
-            "-i", "/tmp/input.jpg",
-            "-o", "/tmp/",
-            "--num_steps", str(num_steps),
-            "--chopping_size", str(chopping_size),
-            "--chopping_bs", "1"
-        ]
-        
-        result = subprocess.run(cmd, capture_output=True, timeout=300)
-        
-        if result.returncode == 0:
-            with open("/tmp/input_enhanced.jpg", "rb") as f:
-                enhanced_data = base64.b64encode(f.read()).decode()
+        # Check if InvSR exists
+        invsr_path = "/app/InvSR"
+        if os.path.exists(invsr_path):
+            print(f"InvSR directory exists")
+            print(f"InvSR contents: {os.listdir(invsr_path)}")
             
-            return {
-                "status": "success",
-                "enhanced_image": enhanced_data,
-                "quality_mode": quality_mode
-            }
+            # Check if inference script exists
+            inference_script = f"{invsr_path}/inference_invsr.py"
+            if os.path.exists(inference_script):
+                print("inference_invsr.py found")
+                
+                # Try running Python --version
+                result = subprocess.run(["python", "--version"], capture_output=True, text=True)
+                print(f"Python version: {result.stdout}")
+                
+                # Try importing basic modules
+                test_cmd = ["python", "-c", "import torch; print('PyTorch version:', torch.__version__)"]
+                result = subprocess.run(test_cmd, capture_output=True, text=True)
+                print(f"PyTorch test: {result.stdout}")
+                print(f"PyTorch errors: {result.stderr}")
+                
+                return {
+                    "status": "debug_success",
+                    "message": "Container working, InvSR found",
+                    "details": {
+                        "invsr_exists": True,
+                        "pytorch_working": "torch" in result.stdout
+                    }
+                }
+            else:
+                return {"status": "error", "message": "inference_invsr.py not found"}
         else:
-            return {"status": "error", "message": "Enhancement failed"}
+            return {"status": "error", "message": "InvSR directory not found"}
             
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return {"status": "error", "message": f"Debug failed: {str(e)}"}
 
 runpod.serverless.start({"handler": handler})
